@@ -1,0 +1,162 @@
+pragma solidity >=0.5.0 <0.6.0;
+import "./ownable.sol";
+
+contract Marketplace is Ownable{
+    
+    uint profit;
+    
+    event sellerAccountCreated(uint id, address owner);
+    event buyerAccountCreated(uint id, address owner);
+    event listingCreated(uint id, string name, uint price);
+    event listingBought(uint id);
+    event listingCancelled(uint id);
+    event purchaseCancelled(uint id);
+    event listingShipped(uint id);
+    
+    struct Seller{
+        uint32 positiveReviews;
+        uint32 negativeReviews;
+        uint32 neutralReviews;
+    }
+    
+    struct Buyer{
+        uint32 positiveReviews;
+        uint32 negativeReviews;
+        uint32 neutralReviews;
+    }
+    
+    struct Listing{
+        string name;
+        uint price;
+        uint32 reports;
+        bool bought;
+        bool shipped;
+        bool complete;
+        bool buyerReview;
+        bool sellerReview;
+    }
+    
+    Seller[] public sellers;
+    Buyer[] public buyers;
+    Listing[] public listings;
+    
+    mapping (address => uint) ownerToSeller;
+    mapping (address => uint) ownerToBuyer;
+    mapping (uint => uint) listingToSeller;
+    mapping (uint => uint) listingToBuyer;
+    mapping (uint => address payable) buyerToOwner;
+    mapping (uint => address payable) sellerToOwner;
+    
+    function openSellerAccount() public{
+        //check seller account
+        uint id = sellers.push(Seller(0,0,0)) - 1;
+        ownerToSeller[msg.sender] = id;
+        sellerToOwner[id] = msg.sender;
+        emit sellerAccountCreated(id, msg.sender);
+    }
+    function openBuyerAccount() public{
+        //check buyer account
+        uint id = buyers.push(Buyer(0,0,0)) - 1;
+        ownerToBuyer[msg.sender] = id;
+        buyerToOwner[id] = msg.sender;
+        emit buyerAccountCreated(id, msg.sender);
+    }
+    
+    function createListing(string memory name, uint price) public{
+        //check seller account
+        require(price % 10000 == 0);
+        uint id = listings.push(Listing(name, price, 0, false, false, false, false, false));
+        listingToSeller[id] = ownerToSeller[msg.sender];
+        emit listingCreated(id, name, price);
+    }
+    function cancelListing(uint id) public{
+        require(listingToSeller[id] == ownerToSeller[msg.sender]);
+        require(listings[id].complete == false);
+        if(listings[id].bought == true){
+            buyerToOwner[listingToBuyer[id]].transfer(listings[id].price);
+            //listingToBuyer[id] = -1;
+        }
+        listings[id].complete == true;
+        listings[id].shipped == false;
+        listings[id].bought == false;
+        emit listingCancelled(id);
+    }
+    
+    function buyListing(uint id) public payable{
+        //check buyer account
+        require(msg.value == listings[id].price);
+        listings[id].bought = true;
+        listingToBuyer[id] = ownerToBuyer[msg.sender];
+        emit listingBought(id);
+    }
+    function cancelPurchase(uint id) public{
+        require(listingToBuyer[id] == ownerToBuyer[msg.sender]);
+        require(listings[id].shipped == false);
+        require(listings[id].complete == false);
+        //listingToBuyer[id] = -1;
+        listings[id].bought = false;
+        buyerToOwner[listingToBuyer[id]].transfer(listings[id].price);
+    }
+    function confirmRecieved(uint id) public{
+        require(listingToBuyer[id] == ownerToBuyer[msg.sender]);
+        require(listings[id].complete == false);
+        require(listings[id].bought == true);
+        require(listings[id].shipped == true);
+        listings[id].complete = true;
+        sellerToOwner[listingToSeller[id]].transfer(listings[id].price - listings[id].price * profit / 10000);
+        owner().transfer(listings[id].price * profit / 10000);
+        //listingToBuyer[id] = -1;
+    }
+    
+    function reviewSeller(uint id, uint8 review) public{
+        require(listingToBuyer[id] == ownerToBuyer[msg.sender]);
+        require(listings[id].complete == true);
+        require(listings[id].sellerReview == false);
+        require(review == 1 || review == 2 || review == 3);
+       if(review == 1){
+           sellers[listingToSeller[id]].negativeReviews += 1;
+       }
+       if(review == 2){
+           sellers[listingToSeller[id]].neutralReviews +=1;
+       }
+       if(review == 3){
+           sellers[listingToSeller[id]].positiveReviews +=1;
+       }
+    }
+    function reviewBuyer(uint id, uint8 review) public{
+        require(listingToSeller[id] == ownerToSeller[msg.sender]);
+        require(listings[id].complete == true);
+        require(listings[id].buyerReview == false);
+        require(review == 1 || review == 2 || review == 3);
+       if(review == 1){
+           buyers[listingToBuyer[id]].negativeReviews += 1;
+       }
+       if(review == 2){
+           buyers[listingToBuyer[id]].neutralReviews +=1;
+       }
+       if(review == 3){
+           buyers[listingToBuyer[id]].positiveReviews +=1;
+       }
+    }
+    function confirmShipped(uint id) public{
+        require(listingToSeller[id] == ownerToSeller[msg.sender]);
+        listings[id].shipped = true;
+        emit listingShipped(id);
+    }
+    function reportListing(uint id) public{
+        //prevent abuse
+        listings[id].reports +=1;
+    }
+    function viewPrice(uint id) external view returns(uint){
+        return(listings[id].price);
+    }
+    function viewReports(uint id) external view returns(uint32){
+        return(listings[id].reports);
+    }
+    function viewBuyerReviews(uint id) external view returns(uint32, uint32, uint32){
+        return(buyers[id].positiveReviews, buyers[id].negativeReviews, buyers[id].neutralReviews);
+    }
+    function viewSellerReviews(uint id) external view returns(uint32, uint32, uint32){
+        return(sellers[id].positiveReviews, sellers[id].negativeReviews, sellers[id].neutralReviews);
+    }
+}
